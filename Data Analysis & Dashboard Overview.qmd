@@ -1,0 +1,333 @@
+---
+title: "Giant Pumpkins and Weather in Washington"
+author: "Sara Zhang, Xinyu Li"
+format:
+  dashboard:
+    theme: cosmo
+embed-resources: true
+---
+
+```{r}
+#| echo: true
+library(tidyverse)
+library(lubridate)
+library(plotly)
+```
+
+```{r}
+#| echo: true
+pumpkin_raw <- read_csv("GPC Weigh-off Results 2025_ Pumpkin.csv")
+noaa_raw <- read_csv("noaa-weather-data.csv", comment = "#")
+
+pumpkin_clean <- pumpkin_raw |>
+  mutate(
+    year = 2025,
+    weight_lbs = `Weight (lbs)`
+  ) |>
+  filter(`State/Prov` == "Washington")
+
+noaa_clean <- noaa_raw |>
+  mutate(
+    year = as.integer(substr(Date, 1, 4)),
+    month = as.integer(substr(Date, 5, 6))
+  ) |>
+  filter(month %in% c(6, 7, 8, 9)) |>
+  group_by(year) |>
+  summarize(
+    avg_temp = mean(Value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+pumpkin_weather_joined <- pumpkin_clean |>
+  left_join(noaa_clean, by = "year")
+```
+
+# Introduction
+
+## Project Overview {height="38%"}
+
+### Big Picture Questions {width="60%"}
+
+This project examines giant pumpkin competition results in Washington and places them in the broader context of statewide growing season temperature. Our first big picture question is **what the distribution of giant pumpkin weights looks like in Washington in 2025**. Our second big picture question is **which pumpkins and growers stand out the most in the Washington competition data**. Our third big picture question is **how far estimated weights differ from official measured weights, and what that tells us about the competition records**.
+
+Giant pumpkin competitions are a popular part of agricultural fair culture, and they reflect both grower skill and growing conditions. The Great Pumpkin Commonwealth provides public information about weigh off events and competitive growing, which helps explain why giant pumpkins are an interesting topic beyond the dataset itself. You can read more here: Great Pumpkin Commonwealth.
+
+To answer our questions, we use two public datasets. The first is the 2025 GPC pumpkin weigh off results: [GPC Weigh-off Results](https://www.bigpumpkins.com/WeighoffResultsGPC.aspx?c=P&y=2025). The second is NOAA statewide temperature data for Washington: [NOAA Climate at a Glance](https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/statewide/time-series/45/tavg/12/0/1975-2026). We join these datasets by year so that the competition outcomes and climate context can be viewed together.
+
+This is an interesting question because giant pumpkins are an example of an extreme agricultural outcome. Even though this project is small in scope, it shows how environmental context can be connected to observed competition records. At the same time, our joined data only contain one year of Washington entries, so the weather variable provides context rather than meaningful within-year variation. Because of that limitation, this dashboard focuses more on describing the pumpkin outcomes clearly than on making strong causal claims about temperature.
+
+There are also ethical and methodological limitations to consider. The pumpkin data only represent entries submitted to weigh off competitions, so they do not represent all pumpkins grown in Washington. The weather data are statewide averages, which means they do not capture farm-level conditions such as local soil, irrigation, sunlight, or microclimate. These limitations matter because they can make the data overgeneralize a relationship that may not hold at a smaller scale.
+
+### Image {width="40%"}
+
+{fig-alt="A giant pumpkin on display." width=100%}
+
+## Join Summary {height="62%"}
+
+### Joined Data Snapshot {width="35%"}
+
+```{r}
+#| echo: true
+pumpkin_weather_joined |>
+  summarize(
+    washington_entries = n(),
+    average_temp_used = first(avg_temp),
+    min_weight = min(`Weight (lbs)`, na.rm = TRUE),
+    max_weight = max(`Weight (lbs)`, na.rm = TRUE)
+  )
+```
+
+This summary confirms that the joined dataset contains Washington competition entries for 2025 and a single statewide average growing season temperature value. Because all rows share the same `avg_temp`, temperature is best treated as background context in this version of the analysis.
+
+### Why This Join Matters {width="65%"}
+
+The join is still useful even with a single year of data because it demonstrates how competition outcomes can be combined with environmental data in one workflow. In this dashboard, the join helps us build a prototype for a larger climate and agriculture project. A future multi-year version would be able to use real variation in weather to study whether hotter or cooler growing seasons are associated with differences in pumpkin outcomes.
+
+# Data Context
+
+## Dataset 1: GPC Pumpkin Weigh-off Results {height="50%"}
+
+### Source and Creator {width="40%"}
+
+The first dataset is the **GPC Weigh-off Results (Pumpkin)** dataset. It is publicly accessible here: [GPC Weigh-off Results 2025](https://www.bigpumpkins.com/WeighoffResultsGPC.aspx?c=P&y=2025). The data are maintained by the **Great Pumpkin Commonwealth (GPC)**, which records official weigh off results from sanctioned competitions.
+
+### Sample Description {width="60%"}
+
+This dataset records giant pumpkin competition results. Each row represents a weighed pumpkin entry and includes variables such as official weight, grower name, city, state or province, competition site, estimated weight, and chart percentage. In the original raw file, there are many entries from multiple places, but in this project we filter the data to Washington only. That makes the sample useful for describing Washington competition outcomes, but it is not representative of all pumpkin growing in the state.
+
+## Dataset 2: NOAA Temperature Data {height="50%"}
+
+### Source and Creator {width="40%"}
+
+The second dataset is the **NOAA / NCEI Climate at a Glance statewide temperature time series**. It is publicly accessible here: [NOAA Climate at a Glance](https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/statewide/time-series/45/tavg/12/0/1975-2026). The data are produced by the **National Centers for Environmental Information (NCEI)** within NOAA.
+
+### Sample Description {width="60%"}
+
+This dataset contains temperature observations over time for Washington at the statewide level. In our workflow, the raw date field is transformed into year and month, and then we focus on June through September as the main growing season months. We then calculate one average temperature value for each year. This dataset is useful because it adds environmental context, but it is limited because statewide averages do not reflect the exact local conditions where each pumpkin was grown.
+
+# Question 1: What does the distribution of pumpkin weights look like?
+
+## Weight Distribution {height="65%"}
+
+### Histogram of Official Weights {width="65%"}
+
+```{r}
+#| echo: true
+#| fig-cap: "Distribution of official pumpkin weights in Washington, 2025"
+#| fig-alt: "Histogram of official pumpkin weights for Washington entries, with orange bars showing how many pumpkins fall in each weight range."
+p <- ggplot(pumpkin_weather_joined, aes(x = `Weight (lbs)`)) +
+  geom_histogram(
+    bins = 20,
+    fill = "darkorange",
+    color = "white"
+  ) +
+  labs(
+    x = "Official Weight (lbs)",
+    y = "Count",
+    title = "Distribution of Pumpkin Weights"
+  ) +
+  theme_minimal()
+
+ggplotly(p)
+```
+
+### Interpretation {width="35%"}
+
+This histogram shows how pumpkin weights are distributed across the Washington entries in the joined dataset. Most pumpkins are concentrated in the middle ranges, while a smaller number of much heavier pumpkins appear near the upper end of the distribution. This makes the histogram a strong first visualization because it highlights spread, clustering, and possible outliers in a simple way.
+
+## Weight Summary Statistics {height="35%"}
+
+### Summary Table {width="50%"}
+
+```{r}
+#| echo: true
+pumpkin_weather_joined |>
+  summarize(
+    mean_weight = mean(`Weight (lbs)`, na.rm = TRUE),
+    median_weight = median(`Weight (lbs)`, na.rm = TRUE),
+    sd_weight = sd(`Weight (lbs)`, na.rm = TRUE),
+    iqr_weight = IQR(`Weight (lbs)`, na.rm = TRUE)
+  )
+```
+
+### Why This Helps {width="50%"}
+
+These summary statistics help interpret the histogram more carefully. The mean and median show the center of the distribution, while the standard deviation and interquartile range show how spread out the competition weights are. Including both the graph and the summary table gives a fuller picture than using either one alone.
+
+# Question 2: Which pumpkins and growers stand out the most?
+
+## Top Entries {height="60%"}
+
+### Top 10 Heaviest Pumpkins {width="65%"}
+
+```{r}
+#| echo: true
+top_pumpkins <- pumpkin_weather_joined |>
+  arrange(desc(`Weight (lbs)`)) |>
+  slice(1:10)
+
+ggplot(top_pumpkins, aes(
+  x = reorder(`Grower Name`, `Weight (lbs)`),
+  y = `Weight (lbs)`
+)) +
+  geom_col(fill = "darkorange") +
+  coord_flip() +
+  labs(
+    x = "Grower Name",
+    y = "Official Weight (lbs)",
+    title = "Top 10 Heaviest Pumpkins in Washington"
+  ) +
+  theme_minimal()
+```
+
+### Interpretation {width="35%"}
+
+This chart focuses on the heaviest entries rather than the full distribution. We use `arrange()` and `slice()` because the goal here is to identify the most extreme cases in the data, not just to summarize the average pattern. Looking at the top 10 entries makes it easier to see which growers produced the largest pumpkins and how much separation exists among the highest results.
+
+## Top Entry Table {height="40%"}
+
+### Ranked Results {width="100%"}
+
+```{r}
+#| echo: true
+top_pumpkins |>
+  select(`Grower Name`, City, `Weight (lbs)`, `Est. Weight`, `Pct. Chart`) |>
+  mutate(rank = row_number()) |>
+  select(rank, everything())
+```
+
+# Question 3: How different are estimated and official weights?
+
+## Weight Error Analysis {height="60%"}
+
+### Create Error Variable and Weight Groups {width="40%"}
+
+```{r}
+#| echo: true
+pumpkin_error <- pumpkin_weather_joined |>
+  mutate(
+    weight_difference = `Est. Weight` - `Weight (lbs)`,
+    weight_group = case_when(
+      `Weight (lbs)` < 700 ~ "Light",
+      `Weight (lbs)` < 1200 ~ "Medium",
+      TRUE ~ "Heavy"
+    )
+  )
+
+pumpkin_error |>
+  count(weight_group)
+```
+
+We use a conditional transformation here because a grouped view makes it easier to compare how estimated and official weights differ across lighter and heavier pumpkins. Without creating these categories, we would only have individual values and it would be harder to communicate broader patterns.
+
+### Boxplot of Weight Difference by Group {width=60%}
+
+```{r}
+#| echo: true
+#| fig-cap: "Difference between estimated and official weight by weight group"
+#| fig-alt: "Boxplot comparing estimated minus official pumpkin weight across light, medium, and heavy groups."
+ggplot(pumpkin_error, aes(x = weight_group, y = weight_difference, fill = weight_group)) +
+  geom_boxplot() +
+  labs(
+    x = "Weight Group",
+    y = "Estimated Weight Minus Official Weight",
+    title = "Estimated vs Official Weight Difference"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Grouped Summary {height=40%}
+
+### Summary Table {width=55%}
+
+```{r}
+#| echo: true
+pumpkin_error |>
+  group_by(weight_group) |>
+  summarize(
+    n = n(),
+    mean_difference = mean(weight_difference, na.rm = TRUE),
+    median_difference = median(weight_difference, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### Interpretation {width=45%}
+
+This section looks at the difference between estimated and official weight, which helps us understand another important feature of the competition data. The grouped boxplot is useful because it shows center, spread, and possible outliers for each category at the same time. This is also the section where conditional transformation is most helpful, because it turns a long list of individual weights into a more readable comparison across categories.
+
+# Conclusion
+
+## Main Takeaways {height=60%}
+
+### Summary {width=100%}
+
+This project shows that Washington giant pumpkin competition results are spread across a fairly wide range of official weights, with most entries clustered in the middle and a smaller number of much heavier pumpkins standing out. That answers our first big picture question by showing that the 2025 Washington distribution is not uniform and includes clear high-end outliers.
+
+Our second big picture question asked which pumpkins and growers stand out the most. The ranked bar chart shows that a small number of entries dominate the upper end of the competition, which makes the top results easy to identify and compare. Looking at the top 10 entries adds detail that the histogram alone cannot provide.
+
+Our third big picture question focused on how estimated and official weights differ. The grouped boxplot and summary table show that estimation error varies across pumpkins, which means competition records contain useful information beyond the final official weight alone. This adds nuance to the dataset by showing that measurement expectations and final outcomes are not always the same.
+
+## Limits and Future Directions {height=40%}
+
+### Reflection {width=100%}
+
+This dashboard probably **underestimates** the complexity of the relationship between climate and pumpkin outcomes because the joined weather data currently include only one Washington growing season average for one year. That means the weather value is useful as context, but it does not provide enough variation to support a strong statistical relationship with weight in this version of the project. The sample is also limited to competition entries, so it should not be treated as an unbiased sample of all pumpkins grown in Washington.
+
+A stronger next step would be to collect multiple years of GPC results and join them with multiple years of NOAA data. An even better future direction would be to use more local weather data, such as county or station level temperature observations, so that each pumpkin entry could be matched with more realistic growing conditions. That would make it much easier to answer broader questions about whether climate patterns are associated with giant pumpkin outcomes over time.
+
+# Tools Used
+
+## Methods and Tools {height=100%}
+
+### Required Tools and Notes {width=100%}
+
+Across this dashboard, we used the following basic tools: `mutate()`, `filter()`, `summarize()`, `arrange()`, and `slice()`. These tools were necessary for cleaning the raw files, narrowing the sample to Washington, computing yearly average temperature, identifying the heaviest pumpkins, and building grouped summaries.
+
+We also used one intermediate tool: **conditional transformation** with `case_when()`. This solved the problem of comparing estimated and official weight differences in a clearer grouped format. We could have left the data ungrouped, but then the comparison would have been much harder to communicate visually.
+
+One additional tool not emphasized in our earlier class workflow was `lubridate`, which we loaded to support date oriented work. In this project, the NOAA data required extracting time information from the `Date` field so that we could identify growing season months and build a yearly average temperature value. We learned this approach by reviewing package documentation and comparing it with examples of date parsing in R.
+
+Another useful visualization tool here was `coord_flip()`. It solved the problem of long grower names in the top 10 chart, since horizontal bars are easier to read than crowded vertical labels. We learned to use it through experimentation with ggplot formatting while refining the dashboard layout.
+
+# Group Information
+
+## Group Overview
+
+**Main topic of interest:**  
+Giant pumpkin competition outcomes and growing-season climate conditions.
+Our group explores how environmental conditions and agricultural competitions intersect by combining pumpkin weigh-off results with climate data.
+
+**Lab section:**  
+INFO 201 BE, Wednesday 10:30 – 11:20 AM  
+
+**TA:**  
+Runa He
+
+
+# Members' Information
+
+## Xinyu Li
+
+Affiliation: Environmental Studies, College of the Environment  
+Email: xinyuli6@uw.edu  
+
+Interest in the Project Topic:  
+I am interested in environmental and climate-related topics.
+
+Short Bio:  
+My major is Environmental Studies and I enjoy using data to explore environmental questions.
+
+---
+
+## Sara Zhang
+
+Affiliation: Pre-Arts & Sciences, College of Arts & Sciences  
+Email: sarazxr@uw.edu  
+
+Interest in the Project Topic:  
+I am interested in business-related topics and how data can support decision-making.
+
+Short Bio:  
+I am interested in the intersection of data, business, and practical problem solving.
